@@ -9,13 +9,15 @@ It has the ability to monitor multiple instances of one Component.
 
 ## Usage
 ```
-perfAnalyzer -n enp1s0 -d sda1 -c -r -i 2 -cmd 'cp /some/random/file /to/some/random/path'
+perfAnalyzer -n enp1s0 -d sda -c -r -i 2 -cmd 'cp /some/random/file /to/some/random/path'
 ```
+**Options:**
+<pre>
+	-n <device>   monitor specified Network Device\
+ 	-d <device>   monitor specified Disk\
+	-c            monitor CPU\
+	-r            monitor RAM\
+	-i            sampling rate in ms (default:1000)\
+	-cmd          execute command while monitoring with perfAnalyzer\
+</pre>
 
-Options:
-  -n <device>   monitor specified Network Device
-  -d <device>   monitor specified Disk
-	-c            monitor CPU
-	-r            monitor RAM
-	-i            sampling rate in ms (default:1000)
-	-cmd          execute command while monitoring with perfAnalyzer
