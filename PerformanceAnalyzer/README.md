@@ -5,7 +5,7 @@ perfAnalyzer can monitor the following Components:
 - Network Cards
 - Disks
 
-It has the ability to monitor multiple instances of one Component.
+It has the ability to monitor multiple instances of one Component and creates a Summary at the end.
 
 ## Usage
 ```
