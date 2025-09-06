@@ -115,7 +115,12 @@ func (pa *PerformanceAnalyzer) Stop() {
 	pa.mu.Lock()
 	pa.running = false
 	pa.mu.Unlock()
+	pa.PrintSummaryWithAnalysis()
+}
+
+func (pa *PerformanceAnalyzer) PrintSummaryWithAnalysis() {
 	pa.PrintSummary()
+	pa.PrintAnalysis()
 }
 
 func (pa *PerformanceAnalyzer) isRunning() bool {
