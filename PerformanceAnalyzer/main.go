@@ -215,16 +215,16 @@ func (pa *PerformanceAnalyzer) getNetworkStats(dev string) (NetworkStats, error)
 		if strings.Contains(line, dev+":") {
 			fields := strings.Fields(line)
 			if len(fields) >= 11 {
-				rxBytes, _ := strconv.ParseUint(fields[1], 10, 64)
-				txBytes, _ := strconv.ParseUint(fields[9], 10, 64)
+				rxBytes, _ := strconv.ParseUint(fields[1], 10, 64) // recieved Bytes
+				txBytes, _ := strconv.ParseUint(fields[9], 10, 64) // transmitted Bytes
 
-				rxPackets, _ := strconv.ParseUint(fields[2], 10, 64)
-				rxErrors, _ := strconv.ParseUint(fields[3], 10, 64)
-				rxDropped, _ := strconv.ParseUint(fields[4], 10, 64)
+				rxPackets, _ := strconv.ParseUint(fields[2], 10, 64) // recieved Packets
+				rxErrors, _ := strconv.ParseUint(fields[3], 10, 64)  // revieved Errors
+				rxDropped, _ := strconv.ParseUint(fields[4], 10, 64) // revieved Dropped
 
-				txPackets, _ := strconv.ParseUint(fields[10], 10, 64)
-				txErrors, _ := strconv.ParseUint(fields[11], 10, 64)
-				txDropped, _ := strconv.ParseUint(fields[12], 10, 64)
+				txPackets, _ := strconv.ParseUint(fields[10], 10, 64) // transmitted Packets
+				txErrors, _ := strconv.ParseUint(fields[11], 10, 64)  // transmitted Errors
+				txDropped, _ := strconv.ParseUint(fields[12], 10, 64) // transmitted Dropped
 
 				var rxErrorRate, txErrorRate float64
 
@@ -548,11 +548,11 @@ func main() {
 		fmt.Println("  -d <device>   monitor specified Disk")
 		fmt.Println("  -c            monitor CPU")
 		fmt.Println("  -r            monitor RAM")
-		fmt.Println("  -i            change sampling rate (default:1)")
+		fmt.Println("  -i            sampling rate in ms (default:1000)")
 		fmt.Println("  -cmd          execute command while monitoring with perfAnalyzer")
 		fmt.Println("")
 		fmt.Println("Example:")
-		fmt.Println("  perfAnalyzer -n enp1s0 -d sda1 -c -r -i 2 -cmd 'cp /some/random/file /to/some/random/path'")
+		fmt.Println("  perfAnalyzer -n enp1s0 -d sda1 -c -r -i 2000 -cmd 'cp /some/random/file /to/some/random/path'")
 		return
 	}
 
