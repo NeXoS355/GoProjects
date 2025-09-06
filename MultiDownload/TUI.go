@@ -1,15 +1,21 @@
-// Update Status Function// ui.go
+// Enhanced UI with Video URL Extraction
+// ui.go
 package main
 
 import (
+	"context"
 	"fmt"
 	"mime"
 	"net/http"
+	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/chromedp"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -21,6 +27,123 @@ type DownloadConfig struct {
 	OutputDir string
 	URLs      []string
 	Names     []string // Custom Namen für URLs
+}
+
+// VideoExtractResult enthält das Ergebnis der Video-Extraktion
+type VideoExtractResult struct {
+	VideoURLs []string
+	PageTitle string
+	Error     error
+}
+
+// extractVideoURLs extrahiert Video-URLs von einer Webseite
+func extractVideoURLs(pageURL string) VideoExtractResult {
+	result := VideoExtractResult{
+		VideoURLs: []string{},
+		PageTitle: "",
+		Error:     nil,
+	}
+
+	parsedURL, err := url.Parse(pageURL)
+	if err != nil {
+		result.Error = fmt.Errorf("ungültige URL: %v", err)
+		return result
+	}
+
+	mainDomain := getMainDomain(parsedURL.Host)
+
+	// Timeout für die Extraktion
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Headless Chromium-Kontext
+	ctx, cancelCtx := chromedp.NewContext(ctx)
+	defer cancelCtx()
+
+	var mediaURLs []string
+	var pageTitle string
+
+	// Listener für Netzwerk-Responses
+	chromedp.ListenTarget(ctx, func(ev interface{}) {
+		switch ev := ev.(type) {
+		case *network.EventResponseReceived:
+			if ev.Response != nil && strings.HasPrefix(ev.Response.MimeType, "video") {
+				u := ev.Response.URL
+				if strings.HasSuffix(getMainDomain(getDomain(u)), mainDomain) && !contains(mediaURLs, u) {
+					mediaURLs = append(mediaURLs, u)
+				}
+			}
+		}
+	})
+
+	// Netzwerk überwachen
+	if err := chromedp.Run(ctx, network.Enable()); err != nil {
+		result.Error = fmt.Errorf("fehler beim Aktivieren von Network: %v", err)
+		return result
+	}
+
+	// Seite laden
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(pageURL),
+		chromedp.Sleep(3*time.Second),
+		chromedp.Title(&pageTitle),
+		chromedp.Sleep(5*time.Second),
+	)
+	if err != nil {
+		result.Error = fmt.Errorf("fehler beim Laden der Seite: %v", err)
+		return result
+	}
+
+	result.VideoURLs = mediaURLs
+	result.PageTitle = sanitizeFilename(pageTitle)
+	return result
+}
+
+// sanitizeFilename bereinigt einen String für die Verwendung als Dateiname
+func sanitizeFilename(filename string) string {
+	// Gefährliche Zeichen entfernen/ersetzen
+	reg := regexp.MustCompile(`[<>:"/\\|?*]`)
+	clean := reg.ReplaceAllString(filename, "_")
+
+	// Mehrfache Unterstriche reduzieren
+	reg2 := regexp.MustCompile(`_+`)
+	clean = reg2.ReplaceAllString(clean, "_")
+
+	// Leerzeichen trimmen und begrenzen
+	clean = strings.TrimSpace(clean)
+	if len(clean) > 100 {
+		clean = clean[:100]
+	}
+
+	return clean
+}
+
+// contains prüft, ob ein Slice ein Element enthält
+func contains(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// getDomain extrahiert die Domain einer URL
+func getDomain(u string) string {
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
+}
+
+// getMainDomain extrahiert die Hauptdomain, z.B. "example.org" aus "videos.example.org"
+func getMainDomain(host string) string {
+	parts := strings.Split(host, ".")
+	if len(parts) < 2 {
+		return host
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
 }
 
 func detectFilename(url string) string {
@@ -65,6 +188,66 @@ func detectFilename(url string) string {
 	return base
 }
 
+// isVideoURL prüft, ob eine URL wahrscheinlich ein Video ist
+func isVideoURL(u string) bool {
+	// Einfache Heuristik basierend auf URL-Endungen
+	videoExtensions := []string{".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m3u8"}
+	lowerURL := strings.ToLower(u)
+
+	for _, ext := range videoExtensions {
+		if strings.Contains(lowerURL, ext) {
+			return true
+		}
+	}
+
+	// Bekannte Video-Plattformen
+	videoSites := []string{"youtube.com", "vimeo.com", "twitch.tv", "dailymotion.com"}
+	for _, site := range videoSites {
+		if strings.Contains(lowerURL, site) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// addURL fügt entweder direkt die URL hinzu oder extrahiert Videos von einer Seite (asynchron)
+func addURL(u string, extractVideo bool, config *DownloadConfig, updateList func(), app *tview.Application, statusView *tview.TextView) {
+	if extractVideo {
+		go func(pageURL string) {
+			// Ladeanzeige
+			app.QueueUpdateDraw(func() {
+				statusView.SetText(fmt.Sprintf("⏳ Extrahiere Videos von %s ...", pageURL))
+			})
+
+			// Extraktion im Hintergrund
+			res := extractVideoURLs(pageURL)
+
+			// Ergebnis zurück in die UI
+			app.QueueUpdateDraw(func() {
+				if res.Error != nil {
+					statusView.SetText(fmt.Sprintf("❌ Fehler bei %s: %v", pageURL, res.Error))
+					return
+				}
+				for _, v := range res.VideoURLs {
+					config.URLs = append(config.URLs, v)
+					config.Names = append(config.Names, res.PageTitle)
+				}
+				updateList()
+				statusView.SetText(fmt.Sprintf("✅ %d Videos von %s extrahiert", len(res.VideoURLs), pageURL))
+			})
+		}(u)
+	} else {
+		// Direkte URL hinzufügen
+		config.URLs = append(config.URLs, u)
+		config.Names = append(config.Names, detectFilename(u))
+		updateList()
+		app.QueueUpdateDraw(func() {
+			statusView.SetText(fmt.Sprintf("➕ URL hinzugefügt: %s", u))
+		})
+	}
+}
+
 // ShowTUI - Zeigt die Terminal-Oberfläche und gibt Konfiguration zurück
 func ShowTUI() (*DownloadConfig, bool) {
 	app := tview.NewApplication()
@@ -73,23 +256,23 @@ func ShowTUI() (*DownloadConfig, bool) {
 		LimitKB:   0,
 		OutputDir: "./downloads",
 		URLs:      []string{},
-		Names:     []string{}, // Custom Namen initialisieren
+		Names:     []string{},
 	}
 
 	cancelled := false
 
 	// Header
 	header := tview.NewTextView()
-	header.SetText(" 🚀 Go Download Manager - TUI Interface").
+	header.SetText(" 🚀 Go Download Manager - Smart Video Extractor").
 		SetTextAlign(tview.AlignCenter).
 		SetTextColor(tcell.ColorYellow).
 		SetBackgroundColor(tcell.ColorDarkBlue)
 
-	// Input Fields (ohne SetFieldWidth für automatische Skalierung)
+	// Input Fields
 	urlInput := tview.NewInputField()
-	urlInput.SetLabel("Download URL: ").
+	urlInput.SetLabel("URL/Video-Seite: ").
 		SetBorder(true).
-		SetTitle(" ➕ URL hinzufügen (Enter = hinzufügen) ")
+		SetTitle(" ➕ URL hinzufügen (Enter = Auto-Extrakt, Ctrl+Enter = direkt) ")
 
 	workersInput := tview.NewInputField()
 	workersInput.SetLabel("Workers: ").
@@ -121,7 +304,7 @@ func ShowTUI() (*DownloadConfig, bool) {
 		SetBorder(true).
 		SetTitle(" 💬 Status ")
 
-	// Layout Variables (müssen vor den Funktionen deklariert werden)
+	// Layout Variables
 	var rootFlex *tview.Flex
 
 	// Update URL List Display
@@ -136,10 +319,19 @@ func ShowTUI() (*DownloadConfig, bool) {
 		}
 	}
 
+	updateStatus := func() {
+		status := fmt.Sprintf("📊 %d URLs | Workers: %d", len(config.URLs), config.Workers)
+		if config.LimitKB > 0 {
+			status += fmt.Sprintf(" | Limit: %d KB/s", config.LimitKB)
+		}
+		status += fmt.Sprintf(" | Output: %s", config.OutputDir)
+		statusView.SetText(status)
+	}
+
 	// Name Input Modal Function
 	showNameInput := func(urlIndex int) {
 		nameInput := tview.NewInputField()
-		nameInput.SetLabel("Orndername: ").
+		nameInput.SetLabel("Dateiname: ").
 			SetBorder(true).
 			SetTitle(" 📝 Dateinamen vergeben (Enter=Speichern) ").
 			SetTitleAlign(tview.AlignCenter)
@@ -177,27 +369,19 @@ func ShowTUI() (*DownloadConfig, bool) {
 		app.SetRoot(nameModal, true)
 		app.SetFocus(nameInput)
 	}
-	updateStatus := func() {
-		status := fmt.Sprintf("📊 %d URLs | Workers: %d", len(config.URLs), config.Workers)
-		if config.LimitKB > 0 {
-			status += fmt.Sprintf(" | Limit: %d KB/s", config.LimitKB)
-		}
-		status += fmt.Sprintf(" | Output: %s", config.OutputDir)
-		statusView.SetText(status)
-	}
 
 	// Input Field Handlers
-	urlInput.SetDoneFunc(func(key tcell.Key) {
-		if key == tcell.KeyEnter {
+	urlInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEnter {
 			url := strings.TrimSpace(urlInput.GetText())
 			if url != "" {
-				config.URLs = append(config.URLs, url)
-				detectedName := detectFilename(url)
-				config.Names = append(config.Names, detectedName)
+				extractVideo := (event.Modifiers() & tcell.ModCtrl) == 0
+				addURL(url, extractVideo, config, updateURLList, app, statusView)
 				urlInput.SetText("")
-				updateURLList()
 			}
+			return nil
 		}
+		return event
 	})
 
 	workersInput.SetChangedFunc(func(text string) {
@@ -233,7 +417,6 @@ func ShowTUI() (*DownloadConfig, bool) {
 			}
 		} else if event.Key() == tcell.KeyF2 {
 			if index >= 0 && index < len(config.URLs) {
-				// Name eingeben Modal
 				showNameInput(index)
 			}
 		}
@@ -260,16 +443,16 @@ func ShowTUI() (*DownloadConfig, bool) {
 		AddItem(tview.NewBox(), 2, 0, false).
 		AddItem(quitButton, 0, 1, false)
 
-	// Settings Layout (responsive - passen sich der Fenstergröße an)
+	// Settings Layout
 	settingsRow1 := tview.NewFlex().
-		AddItem(urlInput, 0, 4, false).       // 4 Teile für URL (größer)
-		AddItem(tview.NewBox(), 1, 0, false). // 1 Zeichen Abstand
-		AddItem(workersInput, 0, 1, false)    // 1 Teil für Workers (kleiner)
+		AddItem(urlInput, 0, 4, false).
+		AddItem(tview.NewBox(), 1, 0, false).
+		AddItem(workersInput, 0, 1, false)
 
 	settingsRow2 := tview.NewFlex().
-		AddItem(outputDirInput, 0, 4, false). // 4 Teile für Output Dir (größer)
-		AddItem(tview.NewBox(), 1, 0, false). // 1 Zeichen Abstand
-		AddItem(limitInput, 0, 1, false)      // 1 Teil für Limit (kleiner)
+		AddItem(outputDirInput, 0, 4, false).
+		AddItem(tview.NewBox(), 1, 0, false).
+		AddItem(limitInput, 0, 1, false)
 
 	// Main Layout
 	mainContent := tview.NewFlex()
@@ -278,14 +461,14 @@ func ShowTUI() (*DownloadConfig, bool) {
 		AddItem(settingsRow2, 3, 0, false).
 		AddItem(urlList, 0, 1, false).
 		AddItem(buttonFlex, 3, 0, false).
-		AddItem(statusView, 3, 0, false)
+		AddItem(statusView, 4, 0, false) // Etwas höher für mehrzeilige Meldungen
 
 	rootFlex = tview.NewFlex()
 	rootFlex.SetDirection(tview.FlexRow).
 		AddItem(header, 1, 0, false).
 		AddItem(mainContent, 0, 1, true)
 
-	// Tab Order for Input Fields
+	// Tab Order
 	inputFields := []tview.Primitive{
 		urlInput,
 		workersInput,
@@ -302,7 +485,6 @@ func ShowTUI() (*DownloadConfig, bool) {
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyF2:
-			// F2 für Name vergeben (nur wenn URL List fokussiert)
 			if app.GetFocus() == urlList {
 				index := urlList.GetCurrentItem()
 				if index >= 0 && index < len(config.URLs) {
@@ -310,7 +492,7 @@ func ShowTUI() (*DownloadConfig, bool) {
 				}
 			}
 			return nil
-		case tcell.KeyF12: // Download starten auf F12 verschoben
+		case tcell.KeyF12:
 			if len(config.URLs) > 0 {
 				app.Stop()
 			}
@@ -320,12 +502,10 @@ func ShowTUI() (*DownloadConfig, bool) {
 			app.Stop()
 			return nil
 		case tcell.KeyTab:
-			// Cycle through input fields
 			currentInputIndex = (currentInputIndex + 1) % len(inputFields)
 			app.SetFocus(inputFields[currentInputIndex])
 			return nil
-		case tcell.KeyBacktab: // Shift+Tab
-			// Cycle backwards through input fields
+		case tcell.KeyBacktab:
 			currentInputIndex = (currentInputIndex - 1 + len(inputFields)) % len(inputFields)
 			app.SetFocus(inputFields[currentInputIndex])
 			return nil
@@ -336,7 +516,7 @@ func ShowTUI() (*DownloadConfig, bool) {
 	app.SetRoot(rootFlex, true)
 	app.SetFocus(urlInput)
 	updateStatus()
-	updateURLList() // Initial URL List aktualisieren
+	updateURLList()
 
 	if err := app.Run(); err != nil {
 		panic(err)
