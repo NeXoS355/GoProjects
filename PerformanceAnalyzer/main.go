@@ -528,7 +528,7 @@ func main() {
 		fmt.Println("  -cmd          execute command while monitoring with perfAnalyzer")
 		fmt.Println("")
 		fmt.Println("Example:")
-		fmt.Println("  perfAnalyzer -n enp1s0 -d sda -c -r -i 2 -cmd 'cp /some/random/file /to/some/random/path'")
+		fmt.Println("  perfAnalyzer -n enp1s0 -d sda1 -c -r -i 2 -cmd 'cp /some/random/file /to/some/random/path'")
 		return
 	}
 
