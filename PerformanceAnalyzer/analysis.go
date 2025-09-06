@@ -47,10 +47,10 @@ func (pa *PerformanceAnalyzer) AnalyzePerformance() []PerformanceIssue {
 		CPUWarning:       75.0,
 		RAMCritical:      90.0,
 		RAMWarning:       75.0,
-		DiskBusyWarning:  80.0,
-		DiskBusyCritical: 95.0,
-		NetworkWarning:   80.0,
-		NetworkCritical:  95.0,
+		DiskBusyCritical: 90.0,
+		DiskBusyWarning:  75.0,
+		NetworkCritical:  90.0,
+		NetworkWarning:   75.0,
 	}
 
 	var issues []PerformanceIssue
@@ -179,7 +179,7 @@ func (pa *PerformanceAnalyzer) analyzeNetwork(thresholds PerfThresholds) []Perfo
 		}
 
 		var rxValues, txValues []float64
-		var errorCount int64
+		var errorCount float64
 
 		for _, stat := range pa.stats[1:] {
 			if netStat, exists := stat.Network[dev]; exists {
@@ -246,12 +246,12 @@ func (pa *PerformanceAnalyzer) analyzeNetwork(thresholds PerfThresholds) []Perfo
 		}
 
 		// Fehler-Analyse
-		if errorCount > 0 {
+		if errorCount > 1.0 {
 			issues = append(issues, PerformanceIssue{
 				Component:   "Network",
 				Device:      dev,
 				Severity:    "Warning",
-				Description: fmt.Sprintf("Netzwerkfehler aufgetreten (%d Fehler)", errorCount),
+				Description: fmt.Sprintf("Netzwerkfehler aufgetreten (%.1f%% Fehlerrate)", errorCount),
 				MaxValue:    float64(errorCount),
 			})
 		}

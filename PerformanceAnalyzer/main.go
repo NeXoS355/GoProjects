@@ -44,7 +44,7 @@ type PerformanceAnalyzer struct {
 type NetStatsPerDev struct {
 	RxMB   float64
 	TxMB   float64
-	Errors int64
+	Errors float64
 }
 
 type DiskStatsPerDev struct {
@@ -56,7 +56,7 @@ type DiskStatsPerDev struct {
 type NetworkStats struct {
 	RxBytes uint64
 	TxBytes uint64
-	Errors  uint64
+	Errors  float64
 }
 
 type DiskStats struct {
@@ -153,7 +153,7 @@ func (pa *PerformanceAnalyzer) collectStats() Stats {
 				stat.Network[dev] = NetStatsPerDev{
 					RxMB:   float64(netStats.RxBytes-prevNetStats.RxBytes) / (1024 * 1024) / timeDiff,
 					TxMB:   float64(netStats.TxBytes-prevNetStats.TxBytes) / (1024 * 1024) / timeDiff,
-					Errors: int64(netStats.Errors - prevNetStats.Errors),
+					Errors: netStats.Errors - prevNetStats.Errors,
 				}
 			}
 			pa.prevNet[dev] = netStats
@@ -217,11 +217,30 @@ func (pa *PerformanceAnalyzer) getNetworkStats(dev string) (NetworkStats, error)
 			if len(fields) >= 11 {
 				rxBytes, _ := strconv.ParseUint(fields[1], 10, 64)
 				txBytes, _ := strconv.ParseUint(fields[9], 10, 64)
-				errors, _ := strconv.ParseUint(fields[2], 10, 64)
+
+				rxPackets, _ := strconv.ParseUint(fields[2], 10, 64)
+				rxErrors, _ := strconv.ParseUint(fields[3], 10, 64)
+				rxDropped, _ := strconv.ParseUint(fields[4], 10, 64)
+
+				txPackets, _ := strconv.ParseUint(fields[10], 10, 64)
+				txErrors, _ := strconv.ParseUint(fields[11], 10, 64)
+				txDropped, _ := strconv.ParseUint(fields[12], 10, 64)
+
+				var rxErrorRate, txErrorRate float64
+
+				if rxPackets > 0 {
+					rxErrorRate = float64(rxErrors+rxDropped) / float64(rxPackets) * 100.0
+				}
+				if txPackets > 0 {
+					txErrorRate = float64(txErrors+txDropped) / float64(txPackets) * 100.0
+				}
+
+				errorRate := (rxErrorRate + txErrorRate) / 2.0
+
 				return NetworkStats{
 					RxBytes: rxBytes,
 					TxBytes: txBytes,
-					Errors:  errors,
+					Errors:  errorRate,
 				}, nil
 			}
 		}
@@ -341,7 +360,7 @@ func (pa *PerformanceAnalyzer) printCurrentStats(stat Stats) {
 	// (Anzahl der Zeilen anpassen, die du neu zeichnen willst)
 	fmt.Print("\033[H\033[J") // Clear screen + Cursor Home
 
-	fmt.Printf("[%s]\n", stat.Timestamp.Format("15:04:05"))
+	fmt.Printf("[%s]\n", stat.Timestamp.Format("15:04:05.000"))
 
 	if len(stat.Network) > 0 {
 		for dev, v := range stat.Network {
@@ -352,10 +371,10 @@ func (pa *PerformanceAnalyzer) printCurrentStats(stat Stats) {
 				rxPct := (rxMbit / float64(speed)) * 100
 				txPct := (txMbit / float64(speed)) * 100
 
-				fmt.Printf("Net:  %-12s: ↓%.2f MB/s (%.1f%%) | ↑%.2f MB/s (%.1f%%) | Speed: %d Mbit/s\n",
-					dev, v.RxMB, rxPct, v.TxMB, txPct, speed)
+				fmt.Printf("Net:  %-12s: ↓%.2f MB/s (%.1f%%) | ↑%.2f MB/s (%.1f%%) | Speed: %d Mbit/s | Err: %.1f%%",
+					dev, v.RxMB, rxPct, v.TxMB, txPct, speed, v.Errors)
 			} else {
-				fmt.Printf("Net:  %-12s]: ↓%.2f / ↑%.2f MB/s (Speed n/a)\n", dev, v.RxMB, v.TxMB)
+				fmt.Printf("Net:  %-12s]: ↓%.2f / ↑%.2f MB/s (Speed n/a)\n | Err: %.1f%%", dev, v.RxMB, v.TxMB, v.Errors)
 			}
 		}
 	}
@@ -396,7 +415,7 @@ func (pa *PerformanceAnalyzer) PrintSummary() {
 	netAvgTx := make(map[string]float64)
 	netMaxRx := make(map[string]float64)
 	netMaxTx := make(map[string]float64)
-	netErrors := make(map[string]int64)
+	netErrors := make(map[string]float64)
 	netCount := make(map[string]float64)
 
 	// Disk: pro Device Stats
@@ -463,7 +482,7 @@ func (pa *PerformanceAnalyzer) PrintSummary() {
 	if len(netCount) > 0 {
 		fmt.Println("Netzwerk:")
 		for dev := range netCount {
-			fmt.Printf("  [%s] ↓ Ø%.2f (Max %.2f) MiB/s | ↑ Ø%.2f (Max %.2f) MiB/s | Errors: %d\n",
+			fmt.Printf("  [%s] ↓ Ø%.2f (Max %.2f) MiB/s | ↑ Ø%.2f (Max %.2f) MiB/s | Errors: %.1f%%\n",
 				dev,
 				netAvgRx[dev]/netCount[dev], netMaxRx[dev],
 				netAvgTx[dev]/netCount[dev], netMaxTx[dev],
@@ -503,8 +522,8 @@ func (m *multiFlag) String() string       { return strings.Join(*m, ",") }
 func (m *multiFlag) Set(val string) error { *m = append(*m, val); return nil }
 
 var (
-	intervalSec int
-	cmdStr      string
+	intervalMs int
+	cmdStr     string
 )
 
 func main() {
@@ -517,7 +536,7 @@ func main() {
 	flag.Var(&diskDevs, "d", "Disk-Device(s), mutliple allowed")
 	flag.BoolVar(&monitorCPU, "c", false, "enable CPU monitoring")
 	flag.BoolVar(&monitorRAM, "r", false, "enable RAM monitoring")
-	flag.IntVar(&intervalSec, "i", 1, "sampling rate")
+	flag.IntVar(&intervalMs, "i", 1000, "sampling rate in Milliseconds")
 	flag.StringVar(&cmdStr, "cmd", "", "console Command")
 	flag.Parse()
 
@@ -541,7 +560,7 @@ func main() {
 	fmt.Printf("Use Disk: %s\n", diskDevs)
 	fmt.Println()
 
-	interval := time.Duration(intervalSec) * time.Second
+	interval := time.Duration(intervalMs) * time.Millisecond
 	analyzer := NewPerformanceAnalyzer(interval, netDevs, diskDevs, monitorCPU, monitorRAM)
 
 	// Signal-Handler für sauberes Beenden
