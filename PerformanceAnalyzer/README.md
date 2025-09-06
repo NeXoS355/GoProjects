@@ -9,7 +9,7 @@ It has the ability to monitor multiple instances of one Component.
 
 ## Usage
 ```
-perfAnalyzer -n enp1s0 -d sda -c -r -i 2 -cmd 'cp /some/random/file /to/some/random/path'
+perfAnalyzer -n enp1s0 -d sda -c -r -i 2000 -cmd 'cp /some/random/file /to/some/random/path'
 ```
 **Options:**
 <pre>
