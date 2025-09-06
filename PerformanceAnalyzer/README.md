@@ -1,4 +1,4 @@
-#Overview
+# Overview
 perfAnalyzer can monitor the following Components:
 - CPU
 - RAM
@@ -7,7 +7,7 @@ perfAnalyzer can monitor the following Components:
 
 It has the ability to monitor multiple instances of one Component.
 
-##Usage
+## Usage
 ```
 perfAnalyzer -n enp1s0 -d sda1 -c -r -i 2 -cmd 'cp /some/random/file /to/some/random/path'
 ```
