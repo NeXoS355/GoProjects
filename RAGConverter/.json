@@ -1,0 +1,19 @@
+[
+  {
+    "id": "beb9ece0-2785-49ad-b69c-aa0f490faaa8",
+    "page": "https://nexos-srv.de:4443",
+    "type": "section",
+    "content": "Insgesamt heute: 0 ml"
+  },
+  {
+    "id": "0cb5880f-857a-40cc-ba50-c8b83a30d1c2",
+    "page": "https://nexos-srv.de:4443",
+    "type": "image",
+    "image": {
+      "url": "https://nexos-srv.de:4443/water-glas.png",
+      "caption": "",
+      "alt_text": "Wasserglas",
+      "description": "Das Bild zeigt ein Wasserglas mit einer minimalistischen Darstellung eines Trinkes in einem Handgelen. Es handelt um eine simple Graphik, die nur aus wenigen Linien und Formen besteht. Die Linien bilden das Trinkgefäß ab und der Trink es selbst. Das Bild dient zur Illustration oder zum Dekorieren von Werben und Produkten im Bereich Lebensmittel, Getränke oder Hauswirtschaft."
+    }
+  }
+]

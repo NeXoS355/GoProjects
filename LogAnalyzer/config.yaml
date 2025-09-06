@@ -1,0 +1,9 @@
+logs:
+  - path: "nextcloud.log"
+    type: "nextcloud"
+    loglevel: "warn"
+    color: "blue"
+  - path: "access.log"
+    type: "apache"
+    loglevel: "warn"
+    color: "red"
