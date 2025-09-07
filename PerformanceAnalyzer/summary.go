@@ -31,7 +31,122 @@ type PerfThresholds struct {
 	NetworkCritical  float64 // z.B. 95% der Link-Speed
 }
 
-// Erweitere deine bestehende PerformanceAnalyzer struct um diese Analyse-Methoden:
+func (pa *PerformanceAnalyzer) PrintSummary() {
+	pa.mu.RLock()
+	defer pa.mu.RUnlock()
+
+	if len(pa.stats) == 0 {
+		fmt.Println("Keine Daten gesammelt.")
+		return
+	}
+
+	fmt.Println("\n\n=== PERFORMANCE ZUSAMMENFASSUNG ===")
+
+	// Netzwerk: pro Device Stats
+	netAvgRx := make(map[string]float64)
+	netAvgTx := make(map[string]float64)
+	netMaxRx := make(map[string]float64)
+	netMaxTx := make(map[string]float64)
+	netErrors := make(map[string]float64)
+	netCount := make(map[string]float64)
+
+	// Disk: pro Device Stats
+	diskAvgR := make(map[string]float64)
+	diskAvgW := make(map[string]float64)
+	diskMaxR := make(map[string]float64)
+	diskMaxW := make(map[string]float64)
+	diskAvgBusy := make(map[string]float64)
+	diskMaxBusy := make(map[string]float64)
+	diskCount := make(map[string]float64)
+
+	var avgCPU, maxCPU float64
+	var cpuCount float64
+
+	// Durch alle gesammelten Stats iterieren (außer dem ersten, da kein Delta)
+	for _, stat := range pa.stats[1:] {
+		// Netzwerk
+		for dev, ns := range stat.Network {
+			if ns.RxMB+ns.TxMB > 0.1 { // ignoriert idle times
+				netAvgRx[dev] += ns.RxMB
+				netAvgTx[dev] += ns.TxMB
+				netErrors[dev] += ns.Errors
+				netCount[dev]++
+				if ns.RxMB > netMaxRx[dev] {
+					netMaxRx[dev] = ns.RxMB
+				}
+				if ns.TxMB > netMaxTx[dev] {
+					netMaxTx[dev] = ns.TxMB
+				}
+			}
+		}
+
+		// Disks
+		for dev, ds := range stat.Disks {
+			if ds.ReadMB+ds.WriteMB > 1.0 { // ignoriert idle times
+				diskAvgR[dev] += ds.ReadMB
+				diskAvgW[dev] += ds.WriteMB
+				diskAvgBusy[dev] += ds.BusyPct
+				diskCount[dev]++
+
+				if ds.ReadMB > diskMaxR[dev] {
+					diskMaxR[dev] = ds.ReadMB
+				}
+				if ds.WriteMB > diskMaxW[dev] {
+					diskMaxW[dev] = ds.WriteMB
+				}
+				if ds.BusyPct > diskMaxBusy[dev] {
+					diskMaxBusy[dev] = ds.BusyPct
+				}
+			}
+		}
+
+		// CPU
+		if pa.monitorCPU {
+			avgCPU += stat.CPUPercent
+			if stat.CPUPercent > maxCPU {
+				maxCPU = stat.CPUPercent
+			}
+			cpuCount++
+		}
+	}
+
+	// Netzwerk-Ausgabe
+	if len(netCount) > 0 {
+		fmt.Println("Netzwerk:")
+		for dev := range netCount {
+			fmt.Printf("  [%s] ↓ Ø%.2f (Max %.2f) MiB/s | ↑ Ø%.2f (Max %.2f) MiB/s | Errors: %.1f%%\n",
+				dev,
+				netAvgRx[dev]/netCount[dev], netMaxRx[dev],
+				netAvgTx[dev]/netCount[dev], netMaxTx[dev],
+				netErrors[dev],
+			)
+		}
+	}
+
+	// Disk-Ausgabe inkl. Busy
+	if len(diskCount) > 0 {
+		fmt.Println("\nFestplatten:")
+		for dev := range diskCount {
+			fmt.Printf(
+				"  [%s] Read Ø%.2f (Max %.2f) MiB/s | Write Ø%.2f (Max %.2f) MiB/s | Busy Ø%.1f%% (Max %.1f%%)\n",
+				dev,
+				diskAvgR[dev]/diskCount[dev], diskMaxR[dev],
+				diskAvgW[dev]/diskCount[dev], diskMaxW[dev],
+				diskAvgBusy[dev]/diskCount[dev], diskMaxBusy[dev],
+			)
+		}
+	}
+
+	// CPU
+	if cpuCount > 0 {
+		fmt.Println("\nSystem:")
+		fmt.Printf("  CPU: Ø%.1f%% (Max %.1f%%)\n", avgCPU/cpuCount, maxCPU)
+	}
+
+	// Dauer
+	duration := pa.stats[len(pa.stats)-1].Timestamp.Sub(pa.stats[0].Timestamp)
+	fmt.Printf("\nGesamte Überwachungsdauer: %v\n", duration.Round(time.Second))
+}
 
 func (pa *PerformanceAnalyzer) AnalyzePerformance() []PerformanceIssue {
 	pa.mu.RLock()

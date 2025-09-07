@@ -4,7 +4,7 @@
 echo "🚀 Kompiliere Go PerformanceAnalyzer..."
 
 # Binary für aktuelles System kompilieren
-go build -o perfAnalyzer main.go analysis.go
+go build -o perfAnalyzer .
 
 if [ $? -eq 0 ]; then
   echo "✅ Erfolgreich kompiliert!"
