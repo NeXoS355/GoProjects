@@ -14,9 +14,12 @@ import (
 )
 
 type Stats struct {
-	Timestamp  time.Time
-	CPUPercent float64
-	MemUsedGB  float64
+	Timestamp    time.Time
+	CPUPercent   float64
+	MemUsedGB    float64
+	MemUsedPerct float64
+	MemDirty     uint64
+	MemWritebac  uint64
 
 	Network map[string]NetStatsPerDev
 	Disks   map[string]DiskStatsPerDev
@@ -63,6 +66,13 @@ type DiskStats struct {
 	ReadBytes  uint64
 	WriteBytes uint64
 	BusyMillis uint64
+}
+
+type MemStats struct {
+	usedGB    float64
+	usedPerct float64
+	dirty     uint64
+	writeback uint64
 }
 
 func NewPerformanceAnalyzer(interval time.Duration, netDevs, diskDevs []string, monitorCPU, monitorRAM bool) *PerformanceAnalyzer {
@@ -193,8 +203,15 @@ func (pa *PerformanceAnalyzer) collectStats() Stats {
 	if pa.monitorCPU {
 		stat.CPUPercent = pa.getCPUUsage()
 	}
+
 	if pa.monitorRAM {
-		stat.MemUsedGB = pa.getMemoryUsage()
+		memStats, err := pa.getMemStats()
+		if err == nil {
+			stat.MemUsedGB = memStats.usedGB
+			stat.MemUsedPerct = memStats.usedPerct
+			stat.MemDirty = memStats.dirty
+			stat.MemWritebac = memStats.writeback
+		}
 	}
 
 	pa.initialized = true
@@ -331,22 +348,38 @@ func (pa *PerformanceAnalyzer) getCPUUsage() float64 {
 	return 0.0
 }
 
-// getMemoryUsage gibt die RAM-Auslastung in GB zurück
-func (pa *PerformanceAnalyzer) getMemoryUsage() float64 {
-	file, _ := os.Open("/proc/meminfo")
+// getMemStats liest RAMStatistiken aus /proc/meminfo
+func (pa *PerformanceAnalyzer) getMemStats() (MemStats, error) {
+	file, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return MemStats{}, err
+	}
 	defer file.Close()
+
 	scanner := bufio.NewScanner(file)
-	var memTotal, memFree uint64
+	var memTotal, memFree, dirty, wb uint64
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "MemTotal:") {
 			fmt.Sscanf(line, "MemTotal: %d kB", &memTotal)
 		} else if strings.HasPrefix(line, "MemAvailable:") {
 			fmt.Sscanf(line, "MemAvailable: %d kB", &memFree)
+		} else if strings.HasPrefix(line, "Dirty:") {
+			fmt.Sscanf(line, "Dirty: %d kB", &dirty)
+		} else if strings.HasPrefix(line, "Writeback:") {
+			fmt.Sscanf(line, "Writeback: %d kB", &wb)
 		}
 	}
-	used := memTotal - memFree
-	return float64(used) / (1024 * 1024) // GB
+	usedGB := float64((memTotal - memFree) / (1024 * 1024))
+	usedPerct := float64(memTotal-memFree) * 100.0 / float64(memTotal)
+	dirtyMB := dirty / 1024
+	wbMB := wb / 1024
+	return MemStats{
+		usedGB:    usedGB,
+		usedPerct: usedPerct,
+		dirty:     dirtyMB,
+		writeback: wbMB,
+	}, nil
 }
 
 // printCurrentStats zeigt die aktuellen Statistiken an
@@ -395,7 +428,7 @@ func (pa *PerformanceAnalyzer) printCurrentStats(stat Stats) {
 		fmt.Printf("CPU:              : %.1f%%\n", stat.CPUPercent)
 	}
 	if pa.monitorRAM {
-		fmt.Printf("RAM:              : %.2f GB\n", stat.MemUsedGB)
+		fmt.Printf("RAM:              : %.2f GB (%.1f%%) | Dirty: %d MiB | Writeback: %d MiB\n", stat.MemUsedGB, stat.MemUsedPerct, stat.MemDirty, stat.MemWritebac)
 	}
 }
 
