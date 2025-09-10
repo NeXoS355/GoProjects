@@ -4,7 +4,7 @@
 echo "🚀 Kompiliere Go PerformanceAnalyzer..."
 
 # Binary für aktuelles System kompilieren
-GOOS=linux GOARCH=amd64 GOAMD=v2 go build -o perfAnalyzer .
+GOOS=linux GOARCH=amd64 GOAMD64=v2 go build -o perfAnalyzer .
 
 if [ $? -eq 0 ]; then
   echo "✅ Erfolgreich kompiliert!"
