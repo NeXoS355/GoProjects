@@ -7,7 +7,7 @@ import (
 
 type Stats struct {
 	Timestamp    time.Time
-	CPUPercent   float64
+	CPUPercent   []float64
 	MemUsedGB    float64
 	MemUsedPerct float64
 	MemDirty     float64
@@ -32,8 +32,8 @@ type PerformanceAnalyzer struct {
 	prevDisk map[string]DiskStats
 
 	initialized    bool
-	prevIdle       uint64
-	prevTotal      uint64
+	prevIdle       []uint64
+	prevTotal      []uint64
 	memUsedAtStart float64
 }
 

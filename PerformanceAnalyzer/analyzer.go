@@ -75,7 +75,7 @@ func (pa *PerformanceAnalyzer) collectStats() Stats {
 
 	// CPU und RAM nur wenn aktiviert
 	if pa.monitorCPU {
-		stat.CPUPercent = pa.getCPUUsage()
+		stat.CPUPercent = pa.getCPUUsageAll()
 	}
 
 	if pa.monitorRAM {
@@ -126,7 +126,7 @@ func (pa *PerformanceAnalyzer) printCurrentStats(stat Stats) {
 				fmt.Printf("Net:  %-12s: ↓%.2f MB/s (%.1f%%) | ↑%.2f MB/s (%.1f%%) | Speed: %d Mbit/s | Err: %.1f%%",
 					dev, v.RxMB, rxPct, v.TxMB, txPct, speed, v.Errors)
 			} else {
-				fmt.Printf("Net:  %-12s]: ↓%.2f / ↑%.2f MB/s (Speed n/a)\n | Err: %.1f%%", dev, v.RxMB, v.TxMB, v.Errors)
+				fmt.Printf("Net:  %-12s]: ↓%.2f / ↑%.2f MB/s (Speed n/a) | Err: %.1f%%", dev, v.RxMB, v.TxMB, v.Errors)
 			}
 		}
 	}
@@ -144,7 +144,26 @@ func (pa *PerformanceAnalyzer) printCurrentStats(stat Stats) {
 	}
 
 	if pa.monitorCPU {
-		fmt.Printf("CPU:              : %.1f%%\n", stat.CPUPercent)
+		warning := false
+		var warningCores []int
+		for i, corePercent := range stat.CPUPercent {
+			if corePercent > 75 {
+				warning = true
+				warningCores = append(warningCores, i)
+			}
+		}
+		if warning {
+			fmt.Printf("CPU:              : %.1f%%", stat.CPUPercent[0])
+			if len(warningCores) > 0 {
+				for i := range warningCores {
+					fmt.Printf(" | !Kern%d!", warningCores[i])
+				}
+			} else {
+				fmt.Printf("\n")
+			}
+		} else {
+			fmt.Printf("CPU:              : %.1f%%\n", stat.CPUPercent[0])
+		}
 	}
 
 	diff := stat.MemUsedGB - pa.memUsedAtStart

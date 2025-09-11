@@ -102,9 +102,9 @@ func (pa *PerformanceAnalyzer) PrintSummary() {
 
 		// CPU
 		if pa.monitorCPU {
-			avgCPU += stat.CPUPercent
-			if stat.CPUPercent > maxCPU {
-				maxCPU = stat.CPUPercent
+			avgCPU += stat.CPUPercent[0]
+			if stat.CPUPercent[0] > maxCPU {
+				maxCPU = stat.CPUPercent[0]
 			}
 			cpuCount++
 		}
@@ -191,47 +191,95 @@ func (pa *PerformanceAnalyzer) AnalyzePerformance() []PerformanceIssue {
 
 func (pa *PerformanceAnalyzer) analyzeCPU(thresholds PerfThresholds) []PerformanceIssue {
 	var issues []PerformanceIssue
-	var cpuValues []float64
+	var allCPUValues [][]float64 // [Messung][Core]
 	var highLoadDuration time.Duration
 	var criticalCount, warningCount int
 
 	for i, stat := range pa.stats[1:] {
-		cpuValues = append(cpuValues, stat.CPUPercent)
+		allCPUValues = append(allCPUValues, stat.CPUPercent)
 
-		if stat.CPUPercent >= thresholds.CPUCritical {
-			criticalCount++
-			if i > 0 {
-				highLoadDuration += stat.Timestamp.Sub(pa.stats[i].Timestamp)
+		// Alle Kerne prüfen
+		for _, coreVal := range stat.CPUPercent {
+			if coreVal >= thresholds.CPUCritical {
+				criticalCount++
+				if i > 0 {
+					highLoadDuration += stat.Timestamp.Sub(pa.stats[i].Timestamp)
+				}
+			} else if coreVal >= thresholds.CPUWarning {
+				warningCount++
 			}
-		} else if stat.CPUPercent >= thresholds.CPUWarning {
-			warningCount++
 		}
 	}
 
-	if len(cpuValues) == 0 {
+	if len(allCPUValues) == 0 {
 		return issues
 	}
 
-	avgCPU := average(cpuValues)
-	maxCPU := maximum(cpuValues)
+	// Nach der Auswertung aller Messpunkte:
+	coreCount := len(allCPUValues[0])
+	avgPerCore := make([]float64, coreCount)
+	maxPerCore := make([]float64, coreCount)
 
-	if criticalCount > 0 {
+	totalSamples := len(allCPUValues)
+	warningSamples := 0
+	criticalSamples := 0
+
+	for _, snapshot := range allCPUValues {
+		hasWarning := false
+		hasCritical := false
+		for c, val := range snapshot {
+			avgPerCore[c] += val
+			if val > maxPerCore[c] {
+				maxPerCore[c] = val
+			}
+			if val >= thresholds.CPUCritical {
+				hasCritical = true
+			} else if val >= thresholds.CPUWarning {
+				hasWarning = true
+			}
+		}
+		if hasCritical {
+			criticalSamples++
+		} else if hasWarning {
+			warningSamples++
+		}
+	}
+
+	for c := range avgPerCore {
+		avgPerCore[c] /= float64(totalSamples)
+	}
+
+	// Gesamtwerte (Core 0 ist Gesamt)
+	avgCPU := avgPerCore[0]
+
+	// Höchstbelasteter Einzelkern
+	peakCore := 0
+	peakVal := maxPerCore[0]
+	for c := 1; c < coreCount; c++ {
+		if maxPerCore[c] > peakVal {
+			peakVal = maxPerCore[c]
+			peakCore = c
+		}
+	}
+
+	// Entscheiden ob Critical oder Warning
+	if criticalSamples > 0 {
 		issues = append(issues, PerformanceIssue{
 			Component:   "CPU",
-			Device:      "",
+			Device:      fmt.Sprintf("CPU%d", peakCore-1), // -1 weil CPU0 in der Liste Gesamt ist
 			Severity:    "Critical",
-			Description: fmt.Sprintf("CPU-Auslastung kritisch hoch (%.1f%% durchschnittlich, %.1f%% maximum)", avgCPU, maxCPU),
-			MaxValue:    maxCPU,
+			Description: fmt.Sprintf("CPU-Auslastung kritisch hoch (Ø %.1f%%, max %.1f%% auf Kern %d)", avgCPU, peakVal, peakCore-1),
+			MaxValue:    peakVal,
 			AvgValue:    avgCPU,
 			Duration:    highLoadDuration,
 		})
-	} else if warningCount > len(cpuValues)/2 { // Mehr als 50% der Zeit über Warning-Threshold
+	} else if warningSamples > totalSamples/2 {
 		issues = append(issues, PerformanceIssue{
 			Component:   "CPU",
-			Device:      "",
+			Device:      fmt.Sprintf("CPU%d", peakCore-1),
 			Severity:    "Warning",
-			Description: fmt.Sprintf("CPU-Auslastung häufig erhöht (%.1f%% durchschnittlich)", avgCPU),
-			MaxValue:    maxCPU,
+			Description: fmt.Sprintf("CPU-Auslastung häufig erhöht (Ø %.1f%%, max %.1f%% auf Kern %d)", avgCPU, peakVal, peakCore-1),
+			MaxValue:    peakVal,
 			AvgValue:    avgCPU,
 		})
 	}
