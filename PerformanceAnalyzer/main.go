@@ -45,8 +45,22 @@ func main() {
 		fmt.Println("  -cmd          execute command while monitoring with perfAnalyzer")
 		fmt.Println("")
 		fmt.Println("Example:")
-		fmt.Println("  perfAnalyzer -n enp1s0 -d sda1 -c -r -i 2000 -cmd 'cp /some/random/file /to/some/random/path'")
+		fmt.Println("  perfAnalyzer -n enp1s0 -d sda -c -r -i 2000 -cmd 'cp /some/random/file /to/some/random/path'")
 		return
+	}
+
+	for _, dev := range netDevs {
+		if err := validateNetworkInterface(dev); err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+
+	for _, dev := range diskDevs {
+		if err := validateDiskDevice(dev); err != nil {
+			fmt.Println(err)
+			return
+		}
 	}
 
 	fmt.Printf("Used Network Interface: %s\n", netDevs)

@@ -123,10 +123,10 @@ func (pa *PerformanceAnalyzer) printCurrentStats(stat Stats) {
 				rxPct := (rxMbit / float64(speed)) * 100
 				txPct := (txMbit / float64(speed)) * 100
 
-				fmt.Printf("Net:  %-12s: ↓%.2f MB/s (%.1f%%) | ↑%.2f MB/s (%.1f%%) | Speed: %d Mbit/s | Err: %.1f%%",
+				fmt.Printf("Net:  %-12s: ↓%.2f MB/s (%.1f%%) | ↑%.2f MB/s (%.1f%%) | Speed: %d Mbit/s | Err: %.1f%%\n",
 					dev, v.RxMB, rxPct, v.TxMB, txPct, speed, v.Errors)
 			} else {
-				fmt.Printf("Net:  %-12s]: ↓%.2f / ↑%.2f MB/s (Speed n/a) | Err: %.1f%%", dev, v.RxMB, v.TxMB, v.Errors)
+				fmt.Printf("Net:  %-12s]: ↓%.2f / ↑%.2f MB/s (Speed n/a) | Err: %.1f%%\n", dev, v.RxMB, v.TxMB, v.Errors)
 			}
 		}
 	}

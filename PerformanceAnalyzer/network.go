@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -67,4 +68,22 @@ func getNetSpeed(dev string) int {
 		return -1
 	}
 	return speed // MBit/s
+}
+
+func validateNetworkInterface(name string) error {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return fmt.Errorf("could not check Network Devices: %v", err)
+	}
+
+	for _, iface := range ifaces {
+		if iface.Name == name {
+			return nil // alles OK
+		}
+	}
+	var netDevs []string
+	for _, i := range ifaces {
+		netDevs = append(netDevs, i.Name)
+	}
+	return fmt.Errorf("Network-Device '%s' not found.\nAvailable Devices are:\n - %s", name, strings.Join(netDevs, "\n - "))
 }
